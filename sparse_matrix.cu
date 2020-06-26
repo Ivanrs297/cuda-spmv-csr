@@ -4,7 +4,7 @@ sparse_matrix.cu:
 	Cuda implementation Sparse Matrix Multiplication by Vector
 
 compile & run:
-	nvcc sparse_matrix.cu -o sparse_matrix.sh -lm && ./sparse_matrix.sh 32768 256 256 1
+	nvcc sparse_matrix.cu -o sparse_matrix -lm && ./sparse_matrix.sh 32768 256 256 1
 
 
 input:
