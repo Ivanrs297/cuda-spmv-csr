@@ -4,7 +4,7 @@ sparse_matrix.cu:
 	Cuda implementation Sparse Matrix Multiplication by Vector
 
 compile & run:
-	nvcc sparse_matrix.cu -o sparse_matrix -lm && ./sparse_matrix.sh 32768 256 256 1
+	nvcc sparse_matrix.cu -o sparse_matrix.sh -lm && ./sparse_matrix.sh 32768 256 256 1
 
 
 input:
@@ -34,34 +34,28 @@ using namespace std;
 __global__ void spmv(int num_rows, int num_cols, int *row_ptrs,
 	int *col_index, double *values, double *x, double *y
 ) {
-	extern __shared__ double sum[];  // sum of the values per row per block
-	int tid =  threadIdx.x;  // Local Thread ID
-	int start_row_ptr = row_ptrs[blockIdx.x];  // Starting index of the row per block
-	int finish_row_ptr = row_ptrs[blockIdx.x + 1];  // Finishing index of the row per block
-	sum[threadIdx.x] = 0.0; 
+	extern __shared__ double s_sum[];  									// sum of the values per row per block
+	int tid = threadIdx.x;  											// Local: Thread ID
+	int g_tid = threadIdx.x + row_ptrs[blockIdx.x];  					// Global: Thread ID + offset in row
+	int NNZ_in_row = row_ptrs[blockIdx.x + 1] - row_ptrs[blockIdx.x];	// Non-zero values in current row-block
+	s_sum[tid] = 0.0; 
 	__syncthreads();
 
-	if (tid + start_row_ptr >= start_row_ptr &&
-		tid + start_row_ptr < finish_row_ptr)
-	{
-		
-		// TODO: check col_index vector, possible memory issue
-		sum[tid] = values[tid + start_row_ptr] * x[col_index[tid + start_row_ptr]]; // Map: value[n] * X[index[n]]
-	}
+	// TODO: check col_index vector, possible memory issue
+	if (tid < NNZ_in_row)
+		s_sum[tid] = values[g_tid] * x[col_index[g_tid]]; 				// Map: value[n] * X[index[n]]
 	__syncthreads();
 	
 	// Inclusive Scan
 	for (int j = 0; j < (int)log2((float) blockDim.x); j++ ){
-		if ( tid - pow(2, j) >= 0) {
-			sum[tid] += sum[tid - (int)pow(2, j)];
-		}
+		if ( tid - pow(2, j) >= 0)
+			s_sum[tid] += s_sum[tid - (int)pow(2, j)];
 		__syncthreads();
 	}
 
 	// Save the result of Row-Block on global memory
-    if(tid == blockDim.x - 1){
-		y[blockIdx.x] = sum[tid];
-	}
+    if(tid == blockDim.x - 1)
+		y[blockIdx.x] = s_sum[tid];
 }
 
 int main(int argc, char *argv[]) {
@@ -128,10 +122,9 @@ int main(int argc, char *argv[]) {
 	
 	// Read the X values:
 	std::ifstream x_file("./data/x.txt");
-	for (int i = 0; i < num_cols; i++) {
+	for (int i = 0; i < num_cols; i++)
 		x_file >> x[i];
-	}
-
+		
 	// Transfer the arrays to the GPU:
 	cudaMemcpy(d_values, values, NNZ*sizeof( double ), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_x, x, num_cols*sizeof( double ), cudaMemcpyHostToDevice);
@@ -167,6 +160,8 @@ int main(int argc, char *argv[]) {
 			errors++;
 			if(debug == 1)
 				printf("Error in Y%d, True: %f, Calc: %f\n", i, true_y[i], y[i]);
+		} else if ( i < 10) {
+			printf("Y%d, True: %f, Calc: %f\n", i, true_y[i], y[i]);
 		}
 	}
 	float error_rate = ((double)errors/(double)num_rows) * 100.0;
@@ -183,7 +178,7 @@ int main(int argc, char *argv[]) {
 	// Calculate Throughput:
 	float bw;
 	bw = (float )num_rows*(float )num_cols*log2((float) num_cols);
-	bw /= milliseconds*1000000.0;
+	bw /= milliseconds * 1000000.0;
 	printf( "\nSpmV GPU execution time: %7.3f ms, Throughput: %6.2f GFLOPS\n\n", milliseconds, bw ); 
 
 	// Store Runtime
