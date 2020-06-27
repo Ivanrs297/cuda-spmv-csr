@@ -47,9 +47,13 @@ __global__ void spmv(int num_rows, int num_cols, int *row_ptrs,
 	__syncthreads();
 	
 	// Inclusive Scan
-	for (int j = 0; j < (int)log2((float) blockDim.x); j++ ){
-		if ( tid - pow(2, j) >= 0)
-			s_sum[tid] += s_sum[tid - (int)pow(2, j)];
+	double temp;
+	for (int j = 1; j < blockDim.x; j *= 2 ){
+		if ( (tid - j) >= 0)
+			temp = s_sum[tid - j];
+		__syncthreads();
+		if ( (tid - j) >= 0)
+			s_sum[tid] += temp;
 		__syncthreads();
 	}
 
